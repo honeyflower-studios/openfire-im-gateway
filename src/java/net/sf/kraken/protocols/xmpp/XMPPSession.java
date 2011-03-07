@@ -16,6 +16,8 @@ import java.util.Timer;
 import java.util.TimerTask;
 
 import net.sf.kraken.avatars.Avatar;
+import net.sf.kraken.protocols.xmpp.mechanisms.FacebookConnectSASLMechanism;
+import net.sf.kraken.protocols.xmpp.mechanisms.MySASLDigestMD5Mechanism;
 import net.sf.kraken.protocols.xmpp.packet.BuzzExtension;
 import net.sf.kraken.protocols.xmpp.packet.GoogleMailBoxPacket;
 import net.sf.kraken.protocols.xmpp.packet.GoogleMailNotifyExtension;
@@ -74,6 +76,10 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
         setSupportedFeature(SupportedFeature.chatstates);
 
         SASLAuthentication.registerSASLMechanism("DIGEST-MD5", MySASLDigestMD5Mechanism.class);
+        if (getTransport().getType().equals(TransportType.facebook)) {
+            SASLAuthentication.registerSASLMechanism("X-FACEBOOK-PLATFORM", FacebookConnectSASLMechanism.class);
+            SASLAuthentication.supportSASLMechanism("X-FACEBOOK-PLATFORM", 0);
+        }
 
         Log.debug("Creating "+getTransport().getType()+" session for " + registration.getUsername());
         String connecthost;
