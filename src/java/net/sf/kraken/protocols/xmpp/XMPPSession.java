@@ -226,7 +226,10 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
      * @return Converted registered name.
      */
     public String generateUsername(String regName) {
-        if (regName.indexOf("@") > -1) {
+        if (regName.equals("{PLATFORM}")) {
+            return JiveGlobals.getProperty("plugin.gateway.facebook.platform.apikey")+"\\|"+JiveGlobals.getProperty("plugin.gateway.facebook.platform.apisecret");
+        }
+        else if (regName.indexOf("@") > -1) {
             if (getTransport().getType().equals(TransportType.gtalk)) {
                 return regName;
             }
