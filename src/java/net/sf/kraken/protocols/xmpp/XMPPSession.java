@@ -227,7 +227,7 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
      */
     public String generateUsername(String regName) {
         if (regName.equals("{PLATFORM}")) {
-            return JiveGlobals.getProperty("plugin.gateway.facebook.platform.apikey")+"\\|"+JiveGlobals.getProperty("plugin.gateway.facebook.platform.apisecret");
+            return JiveGlobals.getProperty("plugin.gateway.facebook.platform.apikey")+"|"+JiveGlobals.getProperty("plugin.gateway.facebook.platform.apisecret");
         }
         else if (regName.indexOf("@") > -1) {
             if (getTransport().getType().equals(TransportType.gtalk)) {
@@ -278,6 +278,8 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
                 @Override
                 public void run() {
                     String userName = generateUsername(registration.getUsername());
+                    Log.debug("FB Username = "+userName);
+                    Log.debug("FB Password = "+registration.getPassword());
                     conn = new XMPPConnection(config);
                     try {
                         Roster.setDefaultSubscriptionMode(SubscriptionMode.manual);

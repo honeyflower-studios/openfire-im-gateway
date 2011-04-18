@@ -23,6 +23,7 @@ import java.util.Map;
 import javax.security.auth.callback.CallbackHandler;
 import javax.security.sasl.Sasl;
 
+import org.apache.log4j.Logger;
 import org.jivesoftware.smack.SASLAuthentication;
 import org.jivesoftware.smack.XMPPException;
 import org.jivesoftware.smack.sasl.SASLMechanism;
@@ -32,6 +33,8 @@ import org.jivesoftware.smack.util.Base64;
  *
  */
 public class FacebookConnectSASLMechanism extends SASLMechanism {
+
+    static Logger Log = Logger.getLogger(FacebookConnectSASLMechanism.class);
 
 	private String sessionKey = "";
 	private String sessionSecret = "";
@@ -78,6 +81,8 @@ public class FacebookConnectSASLMechanism extends SASLMechanism {
 		this.authenticationId = sessionKey;
 		this.password = sessionSecret;
 		this.hostname = host;
+
+        Log.debug("AUTH STEP: apyKey = "+apiKey+", sessionKey = "+sessionKey+", sessionSecret = "+sessionSecret+", authenticationId = "+authenticationId+", password = "+password+", host = "+host);
 
 		String[] mechanisms = { "DIGEST-MD5" };
 		Map<String, String> props = new HashMap<String, String>();
@@ -133,6 +138,8 @@ public class FacebookConnectSASLMechanism extends SASLMechanism {
 										+"session_key="+sessionKey+"&"
 										+"v="+version+"&"
 										+"sig="+sig;
+
+            Log.debug("Composed Response = "+composedResponse);
 			
 			response = composedResponse.getBytes();
 		}
