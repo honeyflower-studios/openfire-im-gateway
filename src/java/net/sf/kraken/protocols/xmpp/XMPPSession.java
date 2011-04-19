@@ -278,8 +278,6 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
                 @Override
                 public void run() {
                     String userName = generateUsername(registration.getUsername());
-                    Log.debug("FB Username = "+userName);
-                    Log.debug("FB Password = "+registration.getPassword());
                     conn = new XMPPConnection(config);
                     try {
                         Roster.setDefaultSubscriptionMode(SubscriptionMode.manual);

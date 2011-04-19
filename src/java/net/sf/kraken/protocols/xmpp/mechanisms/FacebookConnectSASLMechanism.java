@@ -23,7 +23,6 @@ import java.util.Map;
 import javax.security.auth.callback.CallbackHandler;
 import javax.security.sasl.Sasl;
 
-import org.apache.log4j.Logger;
 import org.jivesoftware.smack.SASLAuthentication;
 import org.jivesoftware.smack.XMPPException;
 import org.jivesoftware.smack.sasl.SASLMechanism;
@@ -34,10 +33,8 @@ import org.jivesoftware.smack.util.Base64;
  */
 public class FacebookConnectSASLMechanism extends SASLMechanism {
 
-    static Logger Log = Logger.getLogger(FacebookConnectSASLMechanism.class);
-
 	private String sessionKey = "";
-	private String sessionSecret = "";
+	private String appSecret = "";
 	private String apiKey = "";
 	
 	public FacebookConnectSASLMechanism(SASLAuthentication saslAuthentication) {
@@ -63,26 +60,24 @@ public class FacebookConnectSASLMechanism extends SASLMechanism {
 		getSASLAuthentication().send(new AuthMechanism(getName(), null));
 	}
 
-	public void authenticate(String apiKeyAndSessionKey, String host, String sessionSecret)
+	public void authenticate(String apiKeyAndAppSecret, String host, String sessionKey)
 			throws IOException, XMPPException {
 
-		if(apiKeyAndSessionKey==null || sessionSecret==null)
+		if(apiKeyAndAppSecret==null || sessionKey==null)
 			throw new IllegalStateException("Invalid parameters!");
 		
-		String[] keyArray = apiKeyAndSessionKey.split("\\|");
+		String[] keyArray = apiKeyAndAppSecret.split("\\|");
 		
 		if(keyArray==null || keyArray.length != 2)
 			throw new IllegalStateException("Api key or session key is not present!");
 		
 		this.apiKey = keyArray[0];
-		this.sessionKey = keyArray[1];
-		this.sessionSecret = sessionSecret;
+		this.appSecret = keyArray[1];
+		this.sessionKey = sessionKey;
 		
 		this.authenticationId = sessionKey;
-		this.password = sessionSecret;
+		this.password = sessionKey;
 		this.hostname = host;
-
-        Log.debug("AUTH STEP: apyKey = "+apiKey+", sessionKey = "+sessionKey+", sessionSecret = "+sessionSecret+", authenticationId = "+authenticationId+", password = "+password+", host = "+host);
 
 		String[] mechanisms = { "DIGEST-MD5" };
 		Map<String, String> props = new HashMap<String, String>();
@@ -123,7 +118,7 @@ public class FacebookConnectSASLMechanism extends SASLMechanism {
 							+"nonce="+nonce
 							+"session_key="+sessionKey
 							+"v="+version
-							+sessionSecret;
+							+appSecret;
 			
 			try {
 				sig = MD5(sig);
@@ -139,8 +134,6 @@ public class FacebookConnectSASLMechanism extends SASLMechanism {
 										+"v="+version+"&"
 										+"sig="+sig;
 
-            Log.debug("Composed Response = "+composedResponse);
-			
 			response = composedResponse.getBytes();
 		}
 
