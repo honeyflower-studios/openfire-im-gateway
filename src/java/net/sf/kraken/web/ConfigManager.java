@@ -95,6 +95,14 @@ public class ConfigManager {
                 saveOptionSetting(node, options);
             }
         }
+
+        Element bottomPanel = optConfig.getRootElement().element("bottompanel");
+        if (bottomPanel != null && bottomPanel.nodeCount() > 0) {
+            for (Object nodeObj : bottomPanel.elements("item")) {
+                Element node = (Element)nodeObj;
+                saveOptionSetting(node, options);
+            }
+        }
     }
 
     /**
