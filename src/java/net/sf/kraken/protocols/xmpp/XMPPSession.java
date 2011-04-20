@@ -75,12 +75,6 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
         setSupportedFeature(SupportedFeature.attention);
         setSupportedFeature(SupportedFeature.chatstates);
 
-        SASLAuthentication.registerSASLMechanism("DIGEST-MD5", MySASLDigestMD5Mechanism.class);
-        if (getTransport().getType().equals(TransportType.facebook)) {
-            SASLAuthentication.registerSASLMechanism("X-FACEBOOK-PLATFORM", FacebookConnectSASLMechanism.class);
-            SASLAuthentication.supportSASLMechanism("X-FACEBOOK-PLATFORM", 0);
-        }
-
         Log.debug("Creating "+getTransport().getType()+" session for " + registration.getUsername());
         String connecthost;
         Integer connectport;
@@ -280,6 +274,12 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
                     String userName = generateUsername(registration.getUsername());
                     conn = new XMPPConnection(config);
                     try {
+                        conn.getSASLAuthentication().registerSASLMechanism("DIGEST-MD5", MySASLDigestMD5Mechanism.class);
+                        if (getTransport().getType().equals(TransportType.facebook) && registration.getUsername().equals("{PLATFORM}")) {
+                            conn.getSASLAuthentication().registerSASLMechanism("X-FACEBOOK-PLATFORM", FacebookConnectSASLMechanism.class);
+                            conn.getSASLAuthentication().supportSASLMechanism("X-FACEBOOK-PLATFORM", 0);
+                        }
+
                         Roster.setDefaultSubscriptionMode(SubscriptionMode.manual);
                         conn.connect();
                         conn.addConnectionListener(listener);
