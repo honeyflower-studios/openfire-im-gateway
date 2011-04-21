@@ -21,8 +21,8 @@ martyr.jar               | svn-20070908
 msim.jar                 | svn-20090125
 openymsg.jar             | 0.5.2
 servlet.jar              | 2.5
-smack.jar                | git-20110420 (alternate [#1])
-smackx.jar               | git-20110420 (alternate [#1])
+smack.jar                | git-20110421 (alternate [#1])
+smackx.jar               | git-20110421 (alternate [#1])
 stcomm.jar               | 3.0
 xmlrpc.jar               | 1.0.1
 
