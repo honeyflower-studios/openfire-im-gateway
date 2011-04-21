@@ -1162,7 +1162,7 @@ public abstract class BaseTransport<B extends TransportBuddy> implements Compone
                         changed = true;
                     }
                     catch (Exception ee) {
-                        // Oooookay, ignore then.
+                        Log.debug("Exception while setting groups for roster item:", ee);
                     }
                 }
                 if (changed) {
@@ -1190,7 +1190,7 @@ public abstract class BaseTransport<B extends TransportBuddy> implements Compone
                         gwitem.setGroups((List<String>)groups);
                     }
                     catch (Exception ee) {
-                        // Oooookay, ignore then.
+                        Log.debug("Exception while setting groups for gateway item:", ee);
                     }
                     roster.updateRosterItem(gwitem);
                 }
