@@ -310,17 +310,19 @@ public class RegistrationHandler implements ChannelHandler<IQ> {
         try {
             final DataForm form = new DataForm(packet.getChildElement()
                     .element("x"));
-            final List<FormField> fields = form.getFields();
-            for (final FormField field : fields) {
-                final String var = field.getVariable();
-                if (var.equals("username")) {
-                    username = field.getValues().get(0);
-                }
-                else if (var.equals("password")) {
-                    password = field.getValues().get(0);
-                }
-                else if (var.equals("nick")) {
-                    nickname = field.getValues().get(0);
+            if (form != null) {
+                final List<FormField> fields = form.getFields();
+                for (final FormField field : fields) {
+                    final String var = field.getVariable();
+                    if (var.equals("username")) {
+                        username = field.getValues().get(0);
+                    }
+                    else if (var.equals("password")) {
+                        password = field.getValues().get(0);
+                    }
+                    else if (var.equals("nick")) {
+                        nickname = field.getValues().get(0);
+                    }
                 }
             }
         }
