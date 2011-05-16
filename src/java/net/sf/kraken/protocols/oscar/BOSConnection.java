@@ -20,6 +20,7 @@ import net.kano.joscar.flap.FlapCommand;
 import net.kano.joscar.flap.FlapPacketEvent;
 import net.kano.joscar.flapcmd.CloseFlapCmd;
 import net.kano.joscar.flapcmd.SnacCommand;
+import net.kano.joscar.net.ClientConn;
 import net.kano.joscar.net.ClientConnEvent;
 import net.kano.joscar.net.ConnDescriptor;
 import net.kano.joscar.snac.SnacPacketEvent;
@@ -89,10 +90,17 @@ public class BOSConnection extends BasicFlapConnection {
 
     @Override
     protected void handleStateChange(ClientConnEvent e) {
-        Log.debug("OSCAR bos service state change from "+e.getOldState()+" to "+e.getNewState()+" Reason: "+e.getReason());
+        Log.debug("OSCAR bos service state change from "+e.getOldState()+" to "+e.getNewState()+" Reason: "+e.getReason()+" User:"+getMainSession().getJID());
 //        if (e.getNewState() == ClientFlapConn.STATE_NOT_CONNECTED && e.getOldState() == ClientFlapConn.STATE_CONNECTED && getMainSession().isLoggedIn()) {
 //            getMainSession().sessionDisconnected(LocaleUtils.getLocalizedString("gateway.oscar.disconnected", "kraken"));
 //        }
+        // TODO: Evaulate whether we should check reason and triggered reconnect if possible
+        if (e.getNewState().equals(ClientConn.STATE_NOT_CONNECTED) && e.getReason() != null) {
+            Log.info ("OSCAR bos disconnected with Reason! call sessionDisconnectedNoReconnect for User:" + getMainSession().getJID());
+            if (getMainSession()!= null) {
+                getMainSession().sessionDisconnectedNoReconnect(LocaleUtils.getLocalizedString("gateway.oscar.disconnected", "kraken"));
+            }
+        }
     }
 
     @Override

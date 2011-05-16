@@ -595,7 +595,12 @@ public abstract class TransportSession<B extends TransportBuddy> {
      */
     public void sessionDisconnectedNoReconnect(String errorMessage) {
         Log.debug("Disconnecting session "+getJID()+" from "+getTransport().getJID());
-        cleanUp();
+        try {
+            cleanUp();
+        }
+        catch (Exception e) {
+            Log.info("sessionDisconnectedNoReconnect: Error="+ e);
+        }
         setLoginStatus(TransportLoginStatus.LOGGED_OUT);
         if (getRegistrationPacket() != null) {
             new RegistrationHandler(getTransport()).completeRegistration(this);
