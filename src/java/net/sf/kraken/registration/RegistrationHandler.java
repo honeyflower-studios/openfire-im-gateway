@@ -323,6 +323,12 @@ public class RegistrationHandler implements ChannelHandler<IQ> {
                     else if (var.equals("nick")) {
                         nickname = field.getValues().get(0);
                     }
+                    else if (var.equals("password")) {
+                        password = field.getValues().get(0);
+                    }
+                    else if (var.equals("nick")) {
+                        nickname = field.getValues().get(0);
+                    }
                 }
             }
         }
