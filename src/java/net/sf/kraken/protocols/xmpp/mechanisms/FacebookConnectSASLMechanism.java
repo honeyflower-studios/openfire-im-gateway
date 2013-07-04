@@ -116,7 +116,7 @@ public class FacebookConnectSASLMechanism extends SASLMechanism {
 							+"call_id="+callId
 							+"method="+method
 							+"nonce="+nonce
-							+"session_key="+sessionKey
+							+"access_token="+sessionKey
 							+"v="+version
 							+appSecret;
 			
@@ -130,7 +130,7 @@ public class FacebookConnectSASLMechanism extends SASLMechanism {
 										+"call_id="+callId+"&"
 										+"method="+method+"&"
 										+"nonce="+nonce+"&"
-										+"session_key="+sessionKey+"&"
+										+"access_token="+sessionKey+"&"
 										+"v="+version+"&"
 										+"sig="+sig;
 
