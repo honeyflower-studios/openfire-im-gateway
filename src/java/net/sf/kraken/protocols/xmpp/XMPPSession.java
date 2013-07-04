@@ -17,6 +17,7 @@ import java.util.TimerTask;
 
 import net.sf.kraken.avatars.Avatar;
 import net.sf.kraken.protocols.xmpp.mechanisms.FacebookConnectSASLMechanism;
+import net.sf.kraken.protocols.xmpp.mechanisms.GTalkOAuth2Mechanism;
 import net.sf.kraken.protocols.xmpp.mechanisms.MySASLDigestMD5Mechanism;
 import net.sf.kraken.protocols.xmpp.packet.BuzzExtension;
 import net.sf.kraken.protocols.xmpp.packet.GoogleMailBoxPacket;
@@ -59,6 +60,11 @@ import org.xmpp.packet.JID;
  * @author Mehmet Ecevit
  */
 public class XMPPSession extends TransportSession<XMPPBuddy> {
+    /**
+     * Usernames of GTalk users authenticated by OAuth should have this prefix 
+     * to distinguish them from normal users
+     */
+    private static final String OAUTH_PREFIX = "oauth:";
 
     static Logger Log = Logger.getLogger(XMPPSession.class);
     
@@ -189,6 +195,8 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
      * @return Converted username.
      */
     public String generateFullJID(String username) {
+        username = stripOAuth(username);
+        
         if (username.indexOf("@") > -1) {
             return username;
         }
@@ -220,6 +228,8 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
      * @return Converted registered name.
      */
     public String generateUsername(String regName) {
+        regName = stripOAuth(regName);
+        
         if (regName.equals("{PLATFORM}")) {
             return JiveGlobals.getProperty("plugin.gateway.facebook.platform.apikey")+"|"+JiveGlobals.getProperty("plugin.gateway.facebook.platform.apisecret");
         }
@@ -238,6 +248,18 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
             else {
                 return regName;
             }
+        }
+    }
+    
+    private boolean isOAuth(String username) {
+        return username != null && username.startsWith(OAUTH_PREFIX);
+    }
+    
+    private String stripOAuth(String username) {
+        if (isOAuth(username)) {
+            return username.substring(OAUTH_PREFIX.length());
+        } else {
+            return username;
         }
     }
 
@@ -278,6 +300,10 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
                         if (getTransport().getType().equals(TransportType.facebook) && registration.getUsername().equals("{PLATFORM}")) {
                             conn.getSASLAuthentication().registerSASLMechanism("X-FACEBOOK-PLATFORM", FacebookConnectSASLMechanism.class);
                             conn.getSASLAuthentication().supportSASLMechanism("X-FACEBOOK-PLATFORM", 0);
+                        } else if (getTransport().getType().equals(TransportType.gtalk) && isOAuth(registration.getUsername())) {
+                            // Use OAuth mechanism for GTalk accounts whose username is prefixed with "oauth:"
+                            conn.getSASLAuthentication().registerSASLMechanism("X-OAUTH2", GTalkOAuth2Mechanism.class);
+                            conn.getSASLAuthentication().supportSASLMechanism("X-OAUTH2", 0);
                         }
 
                         Roster.setDefaultSubscriptionMode(SubscriptionMode.manual);
