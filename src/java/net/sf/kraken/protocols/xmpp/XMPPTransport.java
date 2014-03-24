@@ -100,7 +100,8 @@ public class XMPPTransport extends BaseTransport<XMPPBuddy> {
      */
 	@Override
     public TransportSession<XMPPBuddy> registrationLoggedIn(Registration registration, JID jid, PresenceType presenceType, String verboseStatus, Integer priority) {
-        TransportSession<XMPPBuddy> session = new XMPPSession(registration, jid, this, priority);
+	    System.err.println("registrationLoggedIn: " + registration.getJID() + " " + registration.getTransportType() + " " + registration.getPassword());
+	    TransportSession<XMPPBuddy> session = new XMPPSession(registration, jid, this, priority);
         session.setLoginStatus(TransportLoginStatus.LOGGING_IN);
         session.logIn(presenceType, verboseStatus);
         return session;
@@ -113,6 +114,8 @@ public class XMPPTransport extends BaseTransport<XMPPBuddy> {
      */
 	@Override
     public void registrationLoggedOut(TransportSession<XMPPBuddy> session) {
+	    Registration registration = session.getRegistration();
+	    System.err.println("registrationLoggedOut: " + registration.getJID() + " " + registration.getTransportType() + " " + registration.getPassword());
         session.setLoginStatus(TransportLoginStatus.LOGGING_OUT);
         session.logOut();
     }

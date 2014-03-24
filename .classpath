@@ -16,13 +16,11 @@
 	<classpathentry kind="lib" path="lib/jsocks.jar"/>
 	<classpathentry kind="lib" path="lib/log4j.jar"/>
 	<classpathentry kind="lib" path="lib/martyr.jar"/>
-	<classpathentry kind="lib" path="lib/smack.jar"/>
+	<classpathentry kind="lib" path="lib/smack.jar" sourcepath="C:/Dev/seabrowser/openfire/smack/source"/>
 	<classpathentry kind="lib" path="lib/smackx.jar"/>
 	<classpathentry kind="lib" path="lib/xmlrpc.jar"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
-	<classpathentry kind="lib" path="/openfire/build/lib/dist/servlet.jar"/>
 	<classpathentry kind="lib" path="lib/jqql.jar"/>
-	<classpathentry kind="lib" path="/openfire/build/lib/merge/jdom.jar"/>
 	<classpathentry kind="lib" path="lib/dom4j.jar"/>
 	<classpathentry kind="lib" path="lib/stcomm.jar"/>
 	<classpathentry kind="lib" path="lib/msim.jar"/>
@@ -31,7 +29,6 @@
 	<classpathentry kind="lib" path="lib/httpclient.jar"/>
 	<classpathentry kind="lib" path="lib/openymsg.jar"/>
 	<classpathentry combineaccessrules="false" kind="src" path="/openfire"/>
-	<classpathentry kind="lib" path="/openfire/build/lib/merge/tinder.jar"/>
 	<classpathentry kind="lib" path="lib/jcip-annotations.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>

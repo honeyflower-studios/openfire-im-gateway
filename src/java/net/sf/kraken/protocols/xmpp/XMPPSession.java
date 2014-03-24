@@ -268,6 +268,7 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
      */
     @Override
     public void logIn(PresenceType presenceType, String verboseStatus) {
+        System.err.println("Request to log in: " +  registration.getJID() + " " + registration.getTransportType() + " " + registration.getPassword());
         final org.jivesoftware.smack.packet.Presence presence = new org.jivesoftware.smack.packet.Presence(org.jivesoftware.smack.packet.Presence.Type.available);
         if (JiveGlobals.getBooleanProperty("plugin.gateway."+getTransport().getType()+".avatars", true) && getAvatar() != null) {
             Avatar avatar = getAvatar();
@@ -293,6 +294,8 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
             runThread = new Thread() {
                 @Override
                 public void run() {
+                    System.err.println("Connecting: " +  registration.getJID() + " " + registration.getTransportType() + " " + registration.getPassword());
+                    
                     String userName = generateUsername(registration.getUsername());
                     conn = new XMPPConnection(config);
                     try {
@@ -308,6 +311,8 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
 
                         Roster.setDefaultSubscriptionMode(SubscriptionMode.manual);
                         conn.connect();
+                        System.err.println("Connected: " +  registration.getJID() + " " + registration.getTransportType() + " " + registration.getPassword());
+                        
                         conn.addConnectionListener(listener);
                         try {
                             conn.addPacketListener(presenceHandler, new PacketTypeFilter(org.jivesoftware.smack.packet.Presence.class));
@@ -317,6 +322,9 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
                                     new PacketExtensionFilter(GoogleNewMailExtension.ELEMENT_NAME, GoogleNewMailExtension.NAMESPACE)
                             ));
                             conn.login(userName, registration.getPassword(), xmppResource);
+                            
+                            System.err.println("Logged in: " +  registration.getJID() + " " + registration.getTransportType() + " " + registration.getPassword());
+                            
                             conn.sendPacket(presence); // send initial presence.
                             conn.getChatManager().addChatListener(listener);
                             conn.getRoster().addRosterListener(listener);
@@ -353,13 +361,15 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
                                 timer.schedule(mailCheck, timerInterval, timerInterval);
                             }
                         }
-                        catch (XMPPException e) {
+                        catch (XMPPException e) {                            
+                            System.err.println("Error when logging in: " +  registration.getJID() + " " + registration.getTransportType() + " " + registration.getPassword());
                             Log.debug(getTransport().getType()+" user's login/password does not appear to be correct: "+getRegistration().getUsername(), e);
                             setFailureStatus(ConnectionFailureReason.USERNAME_OR_PASSWORD_INCORRECT);
                             sessionDisconnectedNoReconnect(LocaleUtils.getLocalizedString("gateway.xmpp.passwordincorrect", "kraken"));
                         }
                     }
                     catch (XMPPException e) {
+                        System.err.println("Error when connecting: " +  registration.getJID() + " " + registration.getTransportType() + " " + registration.getPassword());
                         Log.debug(getTransport().getType()+" user is not able to connect: "+getRegistration().getUsername(), e);
                         setFailureStatus(ConnectionFailureReason.CAN_NOT_CONNECT);                        
                         sessionDisconnected(LocaleUtils.getLocalizedString("gateway.xmpp.connectionfailed", "kraken"));
