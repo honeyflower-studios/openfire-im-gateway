@@ -141,6 +141,13 @@ public class TransportSessionManager<B extends TransportBuddy> {
         }
         getTransport().getSessionRouter().removeSession(getTransport().getType().toString(), jid.toBareJID());
     }
+    
+    public void removeSession(JID jid, TransportSession<B> session) {
+        if (activeSessions.remove(new JID(jid.toBareJID()), session)) {
+            session.getBuddyManager().sendOfflineForAllAvailablePresences(jid);
+            getTransport().getSessionRouter().removeSession(getTransport().getType().toString(), jid.toBareJID());
+        }
+    }
 
     /**
      * Retrieves a collection of all active sessions.

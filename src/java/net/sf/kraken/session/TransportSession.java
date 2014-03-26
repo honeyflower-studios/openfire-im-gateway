@@ -573,7 +573,6 @@ public abstract class TransportSession<B extends TransportBuddy> {
             sessionDisconnectedNoReconnect(errorMessage);
         }
         else {
-            System.err.println("Disconnecting, will reconnect: " + registration.getUsername() + ":" + registration.getPassword());
             cleanUp();
             Log.debug("Session "+getJID()+" disconnected from "+getTransport().getJID()+".  Reconnecting... (attempt "+reconnectionAttempts+")");
             setLoginStatus(TransportLoginStatus.RECONNECTING);
@@ -595,13 +594,11 @@ public abstract class TransportSession<B extends TransportBuddy> {
      * @param errorMessage Error message to send, or null if no message.
      */
     public void sessionDisconnectedNoReconnect(String errorMessage) {
-        System.err.println("Disconnecting: " + registration.getUsername() + ":" + registration.getPassword());
         Log.debug("Disconnecting session "+getJID()+" from "+getTransport().getJID());
         try {
             cleanUp();
         }
         catch (Exception e) {
-            System.err.println("Error when disconnecting: " + registration.getUsername() + ":" + registration.getPassword() + ":" + e.getMessage());
             Log.info("sessionDisconnectedNoReconnect: Error="+ e);
         }
         setLoginStatus(TransportLoginStatus.LOGGED_OUT);
