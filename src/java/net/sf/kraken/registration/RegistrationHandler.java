@@ -395,11 +395,12 @@ public class RegistrationHandler implements ChannelHandler<IQ> {
 
             registrations = RegistrationManager.getInstance().getRegistrations(from, parent.transportType);
             Registration registration = registrations.iterator().next();
+            
             TransportSession session = parent.registrationLoggedIn(registration, from, PresenceType.available, "", -1);
             session.setRegistrationPacket(packet);
             session.detachSession();
             parent.getSessionManager().storeSession(from, session);
-
+            
             //final IQ result = IQ.createResultIQ(packet);
             // I believe this shouldn't be included. Leaving it around just in
             // case.

@@ -60,7 +60,7 @@ public class FacebookConnectSASLMechanism extends SASLMechanism {
 		getSASLAuthentication().send(new AuthMechanism(getName(), null));
 	}
 
-	public void authenticate(String apiKeyAndAppSecret, String host, String sessionKey)
+	public void authenticate(String apiKeyAndAppSecret, String host, String serviceName, String sessionKey)
 			throws IOException, XMPPException {
 
 		if(apiKeyAndAppSecret==null || sessionKey==null)

@@ -12,9 +12,12 @@ package net.sf.kraken.protocols.xmpp;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Date;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.atomic.AtomicReference;
 
+import net.sf.kraken.BaseTransport;
 import net.sf.kraken.avatars.Avatar;
 import net.sf.kraken.protocols.xmpp.mechanisms.FacebookConnectSASLMechanism;
 import net.sf.kraken.protocols.xmpp.mechanisms.GTalkOAuth2Mechanism;
@@ -28,13 +31,27 @@ import net.sf.kraken.protocols.xmpp.packet.IQWithPacketExtension;
 import net.sf.kraken.protocols.xmpp.packet.ProbePacket;
 import net.sf.kraken.protocols.xmpp.packet.VCardUpdateExtension;
 import net.sf.kraken.registration.Registration;
+import net.sf.kraken.registration.RegistrationHandler;
 import net.sf.kraken.session.TransportSession;
-import net.sf.kraken.type.*;
+import net.sf.kraken.type.ChatStateType;
+import net.sf.kraken.type.ConnectionFailureReason;
+import net.sf.kraken.type.PresenceType;
+import net.sf.kraken.type.SupportedFeature;
+import net.sf.kraken.type.TransportLoginStatus;
+import net.sf.kraken.type.TransportType;
 
 import org.apache.log4j.Logger;
+import org.jivesoftware.openfire.XMPPServer;
+import org.jivesoftware.openfire.session.ClientSession;
 import org.jivesoftware.openfire.user.UserNotFoundException;
-import org.jivesoftware.smack.*;
+import org.jivesoftware.smack.Chat;
+import org.jivesoftware.smack.ConnectionConfiguration;
+import org.jivesoftware.smack.Roster;
 import org.jivesoftware.smack.Roster.SubscriptionMode;
+import org.jivesoftware.smack.RosterEntry;
+import org.jivesoftware.smack.RosterGroup;
+import org.jivesoftware.smack.XMPPConnection;
+import org.jivesoftware.smack.XMPPException;
 import org.jivesoftware.smack.filter.OrFilter;
 import org.jivesoftware.smack.filter.PacketExtensionFilter;
 import org.jivesoftware.smack.filter.PacketTypeFilter;
@@ -141,51 +158,363 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
     }
     
     /*
-     * XMPP connection
-     */
-    public XMPPConnection conn = null;
-    
-    /**
-     * XMPP listener
-     */
-    private XMPPListener listener = null;
-
-    /**
-     * Run thread.
-     */
-    private Thread runThread = null;
-
-	/**
-	 * Instance that will handle all presence stanzas sent from the legacy
-	 * domain
-	 */
-	private XMPPPresenceHandler presenceHandler = null;
-    
-    /*
      * XMPP connection configuration
      */
     private final ConnectionConfiguration config;
-
+    
     /**
-     * Timer to check for online status.
+     * Active connection.
      */
-    public Timer timer = new Timer();
+    class ActiveConnection {    
+        /*
+         * XMPP connection
+         */
+        private XMPPConnection conn = null;
+        
+        /**
+         * XMPP listener
+         */
+        private XMPPListener listener = null;
+    
+        /**
+         * Run thread.
+         */
+        private Thread runThread = null;
+    
+    	/**
+    	 * Instance that will handle all presence stanzas sent from the legacy
+    	 * domain
+    	 */
+    	private XMPPPresenceHandler presenceHandler = null;
+        
+    
+        /**
+         * Timer to check for online status.
+         */
+        private Timer timer = new Timer();
+    
+        /**
+         * Interval at which status is checked.
+         */
+        private int timerInterval = 60000; // 1 minute
+    
+        /**
+         * Mail checker
+         */
+        private MailCheck mailCheck;
+        
+        private final AtomicReference<ConnectionState> state = 
+                new AtomicReference<ConnectionState>(ConnectionState.NEW);
+        
+        public void logIn(final org.jivesoftware.smack.packet.Presence presence) {
+            log("logIn()");
+            listener = new XMPPListener(this);
+            presenceHandler = new XMPPPresenceHandler(this);
+            runThread = new Thread() {
+                @Override
+                public void run() {
+                    doLogIn(presence);
+                }
+            };
+            runThread.start();
+        }
+        
+        private void doLogIn(org.jivesoftware.smack.packet.Presence presence) {
+            if (!state.compareAndSet(ConnectionState.NEW, ConnectionState.LOGGING_IN)) {
+                log("NEW -> LOGGING_IN failed: closed before connecting");
+                cleanup();
+                noReconnect(null);
+                return;
+            }
+            
+            log("NEW -> LOGGING_IN: logging in");
+            
+            String userName = generateUsername(registration.getUsername());
+            conn = new XMPPConnection(config);
+            try {
+                conn.getSASLAuthentication().registerSASLMechanism("DIGEST-MD5", MySASLDigestMD5Mechanism.class);
+                if (getTransport().getType().equals(TransportType.facebook) && registration.getUsername().equals("{PLATFORM}")) {
+                    conn.getSASLAuthentication().registerSASLMechanism("X-FACEBOOK-PLATFORM", FacebookConnectSASLMechanism.class);
+                    conn.getSASLAuthentication().supportSASLMechanism("X-FACEBOOK-PLATFORM", 0);
+                } else if (getTransport().getType().equals(TransportType.gtalk) && isOAuth(registration.getUsername())) {
+                    // Use OAuth mechanism for GTalk accounts whose username is prefixed with "oauth:"
+                    conn.getSASLAuthentication().registerSASLMechanism("X-OAUTH2", GTalkOAuth2Mechanism.class);
+                    conn.getSASLAuthentication().supportSASLMechanism("X-OAUTH2", 0);
+                }
 
-    /**
-     * Interval at which status is checked.
-     */
-    private int timerInterval = 60000; // 1 minute
+                Roster.setDefaultSubscriptionMode(SubscriptionMode.manual);
+                conn.connect();
+                
+                if (state.get() == ConnectionState.CLOSED) {
+                    log("Closed while connecting");
+                    cleanup();
+                    noReconnect(null);
+                    return;
+                }
+                
+                //log("Connected");
+                
+                conn.addConnectionListener(listener);
+                try {
+                    conn.addPacketListener(presenceHandler, new PacketTypeFilter(org.jivesoftware.smack.packet.Presence.class));
+                    // Use this to filter out anything we don't care about
+                    conn.addPacketListener(listener, new OrFilter(
+                            new PacketTypeFilter(GoogleMailBoxPacket.class),
+                            new PacketExtensionFilter(GoogleNewMailExtension.ELEMENT_NAME, GoogleNewMailExtension.NAMESPACE)
+                    ));
+                    conn.login(userName, registration.getPassword(), xmppResource);
+                    
+                    if (state.get() == ConnectionState.CLOSED) {
+                        log("Closed while logging in");
+                        cleanup();
+                        return;
+                    }
+                    
+                    log("Logged in");
+                    
+                    conn.sendPacket(presence); // send initial presence.
+                    conn.getChatManager().addChatListener(listener);
+                    conn.getRoster().addRosterListener(listener);
 
+                    if (JiveGlobals.getBooleanProperty("plugin.gateway."+getTransport().getType()+".avatars", !TransportType.facebook.equals(getTransport().getType())) && getAvatar() != null) {
+                        new Thread() {
+                            @Override
+                            public void run() {
+                                Avatar avatar = getAvatar();
+
+                                VCard vCard = new VCard();
+                                try {
+                                    vCard.load(conn);
+                                    vCard.setAvatar(Base64.decode(avatar.getImageData()), avatar.getMimeType());
+                                    vCard.save(conn);
+                                }
+                                catch (XMPPException e) {
+                                    Log.debug("XMPP: Error while updating vcard for avatar change.", e);
+                                }
+                                catch (NotFoundException e) {
+                                    Log.debug("XMPP: Unable to find avatar while setting initial.", e);
+                                }
+                            }
+                        }.start();
+                    }
+
+                    setLoginStatus(TransportLoginStatus.LOGGED_IN);
+                    syncUsers();
+
+                    if (getTransport().getType().equals(TransportType.gtalk) && JiveGlobals.getBooleanProperty("plugin.gateway.gtalk.mailnotifications", true)) {
+                        conn.sendPacket(new IQWithPacketExtension(generateFullJID(getRegistration().getUsername()), new GoogleUserSettingExtension(null, true, null), IQ.Type.SET));
+                        conn.sendPacket(new IQWithPacketExtension(generateFullJID(getRegistration().getUsername()), new GoogleMailNotifyExtension()));
+                        mailCheck = new MailCheck();
+                        timer.schedule(mailCheck, timerInterval, timerInterval);
+                    }
+                    
+                    if (!state.compareAndSet(ConnectionState.LOGGING_IN, ConnectionState.LOGGED_IN)) {
+                        log("LOGGING_IN -> LOGGED_IN failed: Closed while initializing");
+                        cleanup();
+                        noReconnect(null);
+                        return;
+                    }
+                    
+                    //log("LOGGING_IN -> LOGGED_IN: Initialized");
+                }
+                catch (XMPPException e) {                            
+                    log("Error when logging in: " + e);
+                    Log.debug(getTransport().getType()+" user's login/password does not appear to be correct: "+getRegistration().getUsername(), e);
+                    
+                    disconnected(
+                            LocaleUtils.getLocalizedString("gateway.xmpp.passwordincorrect", "kraken"), 
+                            ConnectionFailureReason.USERNAME_OR_PASSWORD_INCORRECT, 
+                            false, true);
+                    
+                    //setFailureStatus(ConnectionFailureReason.USERNAME_OR_PASSWORD_INCORRECT);
+                    //sessionDisconnectedNoReconnect();
+                }
+            }
+            catch (XMPPException  e) {
+                log("Error when connecting: " + e);
+                Log.debug(getTransport().getType()+" user is not able to connect: "+getRegistration().getUsername(), e);
+
+                disconnected(
+                        LocaleUtils.getLocalizedString("gateway.xmpp.connectionfailed", "kraken"), 
+                        ConnectionFailureReason.CAN_NOT_CONNECT, 
+                        true, true);
+                
+                //setFailureStatus(ConnectionFailureReason.CAN_NOT_CONNECT);                        
+                //sessionDisconnected(LocaleUtils.getLocalizedString("gateway.xmpp.connectionfailed", "kraken"));
+            }
+        }
+        
+        public void logOut() {
+            log("logOut()");
+            ConnectionState oldState = state.getAndSet(ConnectionState.CLOSED);
+            if (oldState == ConnectionState.LOGGED_IN) {
+                log("LOGGED_IN -> CLOSED, cleaning up");
+                cleanup();
+                noReconnect(null);
+            } else {
+                log("!LOGGED_IN -> CLOSED, will clean up later");
+            }
+        }
+        
+        private boolean cleanup() {
+            log("cleanup()");
+            boolean wasActive = inactivate();
+            
+            if (timer != null) {
+                try {
+                    timer.cancel();
+                }
+                catch (Exception e) {
+                    // Ignore
+                }
+                timer = null;
+            }
+            if (mailCheck != null) {
+                try {
+                    mailCheck.cancel();
+                }
+                catch (Exception e) {
+                    // Ignore
+                }
+                mailCheck = null;
+            }
+            if (conn != null) {
+                try {
+                    conn.removeConnectionListener(listener);
+                }
+                catch (Exception e) {
+                    // Ignore
+                }
+                
+                try {
+                    conn.removePacketListener(listener);
+                }
+                catch (Exception e) {
+                    // Ignore
+                }
+                try {
+                    conn.removePacketListener(presenceHandler);
+                } catch (Exception e) {
+                    // Ignore
+                }
+                try {
+                    conn.getChatManager().removeChatListener(listener);
+                }
+                catch (Exception e) {
+                    // Ignore
+                }
+                try {
+                    conn.getRoster().removeRosterListener(listener);
+                }
+                catch (Exception e) {
+                    // Ignore
+                }
+                try {
+                    conn.disconnect();
+                }
+                catch (Exception e) {
+                    // Ignore
+                }
+            }
+            conn = null;
+            listener = null;
+            presenceHandler = null;
+            if (runThread != null) {
+                try {
+                    runThread.interrupt();
+                }
+                catch (Exception e) {
+                    // Ignore
+                }
+                runThread = null;
+            }
+            
+            return wasActive;
+        }
+        
+        public void disconnected(
+                String errorMessage, ConnectionFailureReason reason, 
+                boolean mayReconnect) {
+            disconnected(errorMessage, reason, mayReconnect, false);
+        }
+        
+        private void disconnected(
+                String errorMessage, ConnectionFailureReason reason, 
+                boolean mayReconnect, boolean loginError) {
+            boolean wasActive = false;
+            boolean wasLoggedIn = state.getAndSet(ConnectionState.CLOSED) == ConnectionState.LOGGED_IN;
+            if (wasLoggedIn || loginError) {
+                wasActive = cleanup();
+            } else {
+                log("No need to clean up, just inactivate");
+                wasActive = inactivate();
+            }
+            
+            boolean shouldReconnect = mayReconnect &&
+                    !(getRegistrationPacket() != null || 
+                    !JiveGlobals.getBooleanProperty("plugin.gateway."+getTransport().getType()+"reconnect", true) || 
+                    (++reconnectionAttempts > JiveGlobals.getIntProperty("plugin.gateway."+getTransport().getType()+"reconnectattempts", 3)));
+            
+            if (shouldReconnect) {
+                reconnect(errorMessage);
+            } else {
+                noReconnect(errorMessage);
+            }
+        }
+        
+        private boolean inactivate() {
+            return activeConnection.compareAndSet(this, null);
+        }
+
+        public void execute(ConnectionCommand command) {
+            ConnectionState currentState = state.get();
+            /*if (currentState != ConnectionState.LOGGED_IN) {
+                throw new IllegalStateException("Not logged in: " + currentState);
+            } else*/ if (activeConnection.get() == this) {
+                command.execute(XMPPSession.this, conn, listener);
+            } else {
+                log("Attempt to execute a command on inactive connection: " + command);
+            }
+        }
+        
+        /**
+         * MailCheck.
+         */
+        private class MailCheck extends TimerTask {
+            /**
+             * Check GMail for new mail.
+             */
+            @Override
+            public void run() {
+                if (getTransport().getType().equals(TransportType.gtalk) && JiveGlobals.getBooleanProperty("plugin.gateway.gtalk.mailnotifications", true)) {
+                    GoogleMailNotifyExtension gmne = new GoogleMailNotifyExtension();
+                    gmne.setNewerThanTime(listener.getLastGMailThreadDate());
+                    gmne.setNewerThanTid(listener.getLastGMailThreadId());
+                    conn.sendPacket(new IQWithPacketExtension(generateFullJID(getRegistration().getUsername()), gmne));
+                }
+            }
+        }
+        
+        private void log(String message) {
+            XMPPSession.this.log("[" + hashCode() + "] " + message);
+        }
+    }
+    
     /**
-     * Mail checker
+     * Possible state of active connection.
      */
-    MailCheck mailCheck;
+    private static enum ConnectionState {
+        NEW, LOGGING_IN, LOGGED_IN, CLOSED;
+    }
+    
+    private final AtomicReference<ActiveConnection> activeConnection = new AtomicReference<ActiveConnection>();
 
     /**
      * XMPP Resource - the resource we are using (randomly generated)
      */
     public String xmppResource = StringUtils.randomString(10);
 
+     
     /**
      * Returns a full JID based off of a username passed in.
      *
@@ -218,7 +547,7 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
             return username+"@"+connecthost;
         }
     }
-
+    
     /**
      * Returns a username based off of a registered name (possible JID) passed in.
      *
@@ -287,86 +616,12 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
         }
         setPendingPresenceAndStatus(presenceType, verboseStatus);
         
-        if (!this.isLoggedIn()) {
-            listener = new XMPPListener(this);
-            presenceHandler = new XMPPPresenceHandler(this);
-            runThread = new Thread() {
-                @Override
-                public void run() {
-                    String userName = generateUsername(registration.getUsername());
-                    conn = new XMPPConnection(config);
-                    try {
-                        conn.getSASLAuthentication().registerSASLMechanism("DIGEST-MD5", MySASLDigestMD5Mechanism.class);
-                        if (getTransport().getType().equals(TransportType.facebook) && registration.getUsername().equals("{PLATFORM}")) {
-                            conn.getSASLAuthentication().registerSASLMechanism("X-FACEBOOK-PLATFORM", FacebookConnectSASLMechanism.class);
-                            conn.getSASLAuthentication().supportSASLMechanism("X-FACEBOOK-PLATFORM", 0);
-                        } else if (getTransport().getType().equals(TransportType.gtalk) && isOAuth(registration.getUsername())) {
-                            // Use OAuth mechanism for GTalk accounts whose username is prefixed with "oauth:"
-                            conn.getSASLAuthentication().registerSASLMechanism("X-OAUTH2", GTalkOAuth2Mechanism.class);
-                            conn.getSASLAuthentication().supportSASLMechanism("X-OAUTH2", 0);
-                        }
-
-                        Roster.setDefaultSubscriptionMode(SubscriptionMode.manual);
-                        conn.connect();
-                        conn.addConnectionListener(listener);
-                        try {
-                            conn.addPacketListener(presenceHandler, new PacketTypeFilter(org.jivesoftware.smack.packet.Presence.class));
-                            // Use this to filter out anything we don't care about
-                            conn.addPacketListener(listener, new OrFilter(
-                                    new PacketTypeFilter(GoogleMailBoxPacket.class),
-                                    new PacketExtensionFilter(GoogleNewMailExtension.ELEMENT_NAME, GoogleNewMailExtension.NAMESPACE)
-                            ));
-                            conn.login(userName, registration.getPassword(), xmppResource);
-                            conn.sendPacket(presence); // send initial presence.
-                            conn.getChatManager().addChatListener(listener);
-                            conn.getRoster().addRosterListener(listener);
-
-                            if (JiveGlobals.getBooleanProperty("plugin.gateway."+getTransport().getType()+".avatars", !TransportType.facebook.equals(getTransport().getType())) && getAvatar() != null) {
-                                new Thread() {
-                                    @Override
-                                    public void run() {
-                                        Avatar avatar = getAvatar();
-
-                                        VCard vCard = new VCard();
-                                        try {
-                                            vCard.load(conn);
-                                            vCard.setAvatar(Base64.decode(avatar.getImageData()), avatar.getMimeType());
-                                            vCard.save(conn);
-                                        }
-                                        catch (XMPPException e) {
-                                            Log.debug("XMPP: Error while updating vcard for avatar change.", e);
-                                        }
-                                        catch (NotFoundException e) {
-                                            Log.debug("XMPP: Unable to find avatar while setting initial.", e);
-                                        }
-                                    }
-                                }.start();
-                            }
-
-                            setLoginStatus(TransportLoginStatus.LOGGED_IN);
-                            syncUsers();
-
-                            if (getTransport().getType().equals(TransportType.gtalk) && JiveGlobals.getBooleanProperty("plugin.gateway.gtalk.mailnotifications", true)) {
-                                conn.sendPacket(new IQWithPacketExtension(generateFullJID(getRegistration().getUsername()), new GoogleUserSettingExtension(null, true, null), IQ.Type.SET));
-                                conn.sendPacket(new IQWithPacketExtension(generateFullJID(getRegistration().getUsername()), new GoogleMailNotifyExtension()));
-                                mailCheck = new MailCheck();
-                                timer.schedule(mailCheck, timerInterval, timerInterval);
-                            }
-                        }
-                        catch (XMPPException e) {
-                            Log.debug(getTransport().getType()+" user's login/password does not appear to be correct: "+getRegistration().getUsername(), e);
-                            setFailureStatus(ConnectionFailureReason.USERNAME_OR_PASSWORD_INCORRECT);
-                            sessionDisconnectedNoReconnect(LocaleUtils.getLocalizedString("gateway.xmpp.passwordincorrect", "kraken"));
-                        }
-                    }
-                    catch (XMPPException e) {
-                        Log.debug(getTransport().getType()+" user is not able to connect: "+getRegistration().getUsername(), e);
-                        setFailureStatus(ConnectionFailureReason.CAN_NOT_CONNECT);                        
-                        sessionDisconnected(LocaleUtils.getLocalizedString("gateway.xmpp.connectionfailed", "kraken"));
-                    }
-                }
-            };
-            runThread.start();
+        ActiveConnection c = new ActiveConnection();
+        if (activeConnection.compareAndSet(null, c)) {
+            log("Created active connection");
+            c.logIn(presence);
+        } else {
+            log("logIn() ignored: connection already active");
         }
     }
 
@@ -375,8 +630,54 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
      */
     @Override
     public void logOut() {
-        cleanUp();
-        sessionDisconnectedNoReconnect(null);
+        ActiveConnection c = activeConnection.getAndSet(null);
+        if (c != null) {
+            c.logOut();
+        } else {
+            log("logOut() ignored: no active connection");
+        }
+    }
+    
+    public void reconnect(String errorMessage) {
+        if (activeConnection.get() != null) return;
+        
+        setLoginStatus(TransportLoginStatus.RECONNECTING);
+        ClientSession session = XMPPServer.getInstance().getSessionManager().getSession(getJIDWithHighestPriority());
+        if (session != null) {
+            log("Reconnecting...");
+            logIn(getTransport().getPresenceType(session.getPresence()), null);
+        }
+        else {
+            noReconnect(errorMessage);
+        }
+    }
+    
+    public void noReconnect(String errorMessage) {
+        if (activeConnection.get() != null) return;
+        
+        log("No reconnect");
+        
+        setLoginStatus(TransportLoginStatus.LOGGED_OUT);
+        if (getRegistrationPacket() != null) {
+            new RegistrationHandler(getTransport()).completeRegistration(this);
+        }
+        else {
+            org.xmpp.packet.Presence p = new org.xmpp.packet.Presence(org.xmpp.packet.Presence.Type.unavailable);
+            p.setTo(getJID());
+            p.setFrom(getTransport().getJID());
+            getTransport().sendPacket(p);
+            if (errorMessage != null) {
+                getTransport().sendMessage(
+                        getJIDWithHighestPriority(),
+                        getTransport().getJID(),
+                        errorMessage,
+                        org.xmpp.packet.Message.Type.error
+                );
+            }
+            getBuddyManager().sendOfflineForAllAvailablePresences(getJID());
+        }
+        buddyManager.resetBuddies();
+        getTransport().getSessionManager().removeSession(getJID(), this);
     }
 
     /**
@@ -384,244 +685,218 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
      */
     @Override
     public void cleanUp() {
-        if (timer != null) {
-            try {
-                timer.cancel();
-            }
-            catch (Exception e) {
-                // Ignore
-            }
-            timer = null;
-        }
-        if (mailCheck != null) {
-            try {
-                mailCheck.cancel();
-            }
-            catch (Exception e) {
-                // Ignore
-            }
-            mailCheck = null;
-        }
-        if (conn != null) {
-            try {
-                conn.removeConnectionListener(listener);
-            }
-            catch (Exception e) {
-                // Ignore
-            }
-            
-            try {
-                conn.removePacketListener(listener);
-            }
-            catch (Exception e) {
-                // Ignore
-            }
-            try {
-            	conn.removePacketListener(presenceHandler);
-            } catch (Exception e) {
-            	// Ignore
-            }
-            try {
-                conn.getChatManager().removeChatListener(listener);
-            }
-            catch (Exception e) {
-                // Ignore
-            }
-            try {
-                conn.getRoster().removeRosterListener(listener);
-            }
-            catch (Exception e) {
-                // Ignore
-            }
-            try {
-                conn.disconnect();
-            }
-            catch (Exception e) {
-                // Ignore
-            }
-        }
-        conn = null;
-        listener = null;
-        presenceHandler = null;
-        if (runThread != null) {
-            try {
-                runThread.interrupt();
-            }
-            catch (Exception e) {
-                // Ignore
-            }
-            runThread = null;
-        }
+        throw new UnsupportedOperationException();
     }
 
     /**
      * @see net.sf.kraken.session.TransportSession#updateStatus(net.sf.kraken.type.PresenceType, String)
      */
     @Override
-    public void updateStatus(PresenceType presenceType, String verboseStatus) {
-        setPresenceAndStatus(presenceType, verboseStatus);
-        final org.jivesoftware.smack.packet.Presence presence = constructCurrentLegacyPresencePacket();
+    public void updateStatus(final PresenceType presenceType, final String verboseStatus) {
+        execute(new ConnectionCommand() {
+            @Override
+            public void execute(XMPPSession session, XMPPConnection conn, XMPPListener listener) {
+                setPresenceAndStatus(presenceType, verboseStatus);
+                final org.jivesoftware.smack.packet.Presence presence = constructCurrentLegacyPresencePacket();
 
-        try {
-            conn.sendPacket(presence);
-        }
-        catch (IllegalStateException e) {
-            Log.debug("XMPP: Not connected while trying to change status.");
-        }
+                try {
+                    conn.sendPacket(presence);
+                }
+                catch (IllegalStateException e) {
+                    Log.debug("XMPP: Not connected while trying to change status.");
+                }
+            }
+        });
     }
 
     /**
      * @see net.sf.kraken.session.TransportSession#addContact(org.xmpp.packet.JID, String, java.util.ArrayList)
      */
     @Override
-    public void addContact(JID jid, String nickname, ArrayList<String> groups) {
-        String mail = getTransport().convertJIDToID(jid);
-        try {
-            conn.getRoster().createEntry(mail, nickname, groups.toArray(new String[groups.size()]));
-            RosterEntry entry = conn.getRoster().getEntry(mail);
+    public void addContact(final JID jid, final String nickname, final ArrayList<String> groups) {
+        execute(new ConnectionCommand() {
+            @Override
+            public void execute(XMPPSession session, XMPPConnection conn, XMPPListener listener) {
+                String mail = getTransport().convertJIDToID(jid);
+                try {
+                    conn.getRoster().createEntry(mail, nickname, groups.toArray(new String[groups.size()]));
+                    RosterEntry entry = conn.getRoster().getEntry(mail);
 
-            getBuddyManager().storeBuddy(new XMPPBuddy(getBuddyManager(), mail, nickname, entry.getGroups(), entry));
-        }
-        catch (XMPPException ex) {
-            Log.debug("XMPP: unable to add:"+ mail);
-        }
+                    getBuddyManager().storeBuddy(new XMPPBuddy(getBuddyManager(), mail, nickname, entry.getGroups(), entry));
+                }
+                catch (XMPPException ex) {
+                    Log.debug("XMPP: unable to add:"+ mail);
+                }
+            }
+        });
     }
 
     /**
      * @see net.sf.kraken.session.TransportSession#removeContact(net.sf.kraken.roster.TransportBuddy)
      */
     @Override
-    public void removeContact(XMPPBuddy contact) {
-        RosterEntry user2remove;
-        String mail = getTransport().convertJIDToID(contact.getJID());
-        user2remove =  conn.getRoster().getEntry(mail);
-        try {
-            conn.getRoster().removeEntry(user2remove);
-        }
-        catch (XMPPException ex) {
-            Log.debug("XMPP: unable to remove:"+ mail);
-        }
+    public void removeContact(final XMPPBuddy contact) {
+        execute(new ConnectionCommand() {
+            @Override
+            public void execute(XMPPSession session, XMPPConnection conn, XMPPListener listener) {
+                RosterEntry user2remove;
+                String mail = getTransport().convertJIDToID(contact.getJID());
+                user2remove =  conn.getRoster().getEntry(mail);
+                try {
+                    conn.getRoster().removeEntry(user2remove);
+                }
+                catch (XMPPException ex) {
+                    Log.debug("XMPP: unable to remove:"+ mail);
+                }
+            }
+        });
     }
 
     /**
      * @see net.sf.kraken.session.TransportSession#updateContact(net.sf.kraken.roster.TransportBuddy)
      */
     @Override
-    public void updateContact(XMPPBuddy contact) {
-        RosterEntry user2Update;
-        String mail = getTransport().convertJIDToID(contact.getJID());
-        user2Update =  conn.getRoster().getEntry(mail);
-        user2Update.setName(contact.getNickname());
-        Collection<String> newgroups = contact.getGroups();
-        if (newgroups == null) {
-            newgroups = new ArrayList<String>();
-        }
-        for (RosterGroup group : conn.getRoster().getGroups()) {
-            if (newgroups.contains(group.getName())) {
-                if (!group.contains(user2Update)) {
-                    try {
-                        group.addEntry(user2Update);
+    public void updateContact(final XMPPBuddy contact) {
+        execute(new ConnectionCommand() {
+            @Override
+            public void execute(XMPPSession session, XMPPConnection conn, XMPPListener listener) {
+                RosterEntry user2Update;
+                String mail = getTransport().convertJIDToID(contact.getJID());
+                user2Update =  conn.getRoster().getEntry(mail);
+                user2Update.setName(contact.getNickname());
+                Collection<String> newgroups = contact.getGroups();
+                if (newgroups == null) {
+                    newgroups = new ArrayList<String>();
+                }
+                for (RosterGroup group : conn.getRoster().getGroups()) {
+                    if (newgroups.contains(group.getName())) {
+                        if (!group.contains(user2Update)) {
+                            try {
+                                group.addEntry(user2Update);
+                            }
+                            catch (XMPPException e) {
+                                Log.debug("XMPP: Unable to add roster item to group.");
+                            }
+                        }
+                        newgroups.remove(group.getName());
                     }
-                    catch (XMPPException e) {
-                        Log.debug("XMPP: Unable to add roster item to group.");
+                    else {
+                        if (group.contains(user2Update)) {
+                            try {
+                                group.removeEntry(user2Update);
+                            }
+                            catch (XMPPException e) {
+                                Log.debug("XMPP: Unable to delete roster item from group.");
+                            }
+                        }
                     }
                 }
-                newgroups.remove(group.getName());
-            }
-            else {
-                if (group.contains(user2Update)) {
+                for (String group : newgroups) {
+                    RosterGroup newgroup = conn.getRoster().createGroup(group);
                     try {
-                        group.removeEntry(user2Update);
+                        newgroup.addEntry(user2Update);
                     }
                     catch (XMPPException e) {
-                        Log.debug("XMPP: Unable to delete roster item from group.");
+                        Log.debug("XMPP: Unable to add roster item to new group.");
                     }
                 }
             }
-        }
-        for (String group : newgroups) {
-            RosterGroup newgroup = conn.getRoster().createGroup(group);
-            try {
-                newgroup.addEntry(user2Update);
-            }
-            catch (XMPPException e) {
-                Log.debug("XMPP: Unable to add roster item to new group.");
-            }
-        }
+        });
     }
     
     /**
      * @see net.sf.kraken.session.TransportSession#acceptAddContact(JID)
      */
     @Override
-    public void acceptAddContact(JID jid) {
-        final String userID = getTransport().convertJIDToID(jid);
-        Log.debug("XMPP: accept-add contact: " + userID);
-        
-        final Presence accept = new Presence(Type.subscribed);
-        accept.setTo(userID);
-        conn.sendPacket(accept);
+    public void acceptAddContact(final JID jid) {
+        execute(new ConnectionCommand() {
+            @Override
+            public void execute(XMPPSession session, XMPPConnection conn, XMPPListener listener) {
+                final String userID = getTransport().convertJIDToID(jid);
+                Log.debug("XMPP: accept-add contact: " + userID);
+                
+                final Presence accept = new Presence(Type.subscribed);
+                accept.setTo(userID);
+                conn.sendPacket(accept);
+            }
+        });        
     }
     
     /**
      * @see net.sf.kraken.session.TransportSession#sendMessage(org.xmpp.packet.JID, String)
      */
     @Override
-    public void sendMessage(JID jid, String message) {
-        Chat chat = conn.getChatManager().createChat(getTransport().convertJIDToID(jid), listener);
-        try {
-            chat.sendMessage(message);
-        }
-        catch (XMPPException e) {
-            // Ignore
-        }
+    public void sendMessage(final JID jid, final String message) {
+        execute(new ConnectionCommand() {
+            @Override
+            public void execute(XMPPSession session, XMPPConnection conn, XMPPListener listener) {
+                Chat chat = conn.getChatManager().createChat(getTransport().convertJIDToID(jid), listener);
+                try {
+                    chat.sendMessage(message);
+                }
+                catch (XMPPException e) {
+                    // Ignore
+                }
+            }
+        });
     }
 
     /**
      * @see net.sf.kraken.session.TransportSession#sendChatState(org.xmpp.packet.JID, net.sf.kraken.type.ChatStateType)
      */
     @Override
-    public void sendChatState(JID jid, ChatStateType chatState) {
-        final Presence presence = conn.getRoster().getPresence(jid.toString());
-        if (presence == null  || presence.getType().equals(Presence.Type.unavailable)) {
-            // don't send chat state to contacts that are offline.
-            return;
-        }
-        Chat chat = conn.getChatManager().createChat(getTransport().convertJIDToID(jid), listener);
-        try {
-            ChatState state = ChatState.active;
-            switch (chatState) {
-                case active:    state = ChatState.active;    break;
-                case composing: state = ChatState.composing; break;
-                case paused:    state = ChatState.paused;    break;
-                case inactive:  state = ChatState.inactive;  break;
-                case gone:      state = ChatState.gone;      break;
-            }
+    public void sendChatState(final JID jid, final ChatStateType chatState) {
+        execute(new ConnectionCommand() {
+            @Override
+            public void execute(XMPPSession session, XMPPConnection conn, XMPPListener listener) {
+                final Presence presence = conn.getRoster().getPresence(jid.toString());
+                if (presence == null  || presence.getType().equals(Presence.Type.unavailable)) {
+                    // don't send chat state to contacts that are offline.
+                    return;
+                }
+                Chat chat = conn.getChatManager().createChat(getTransport().convertJIDToID(jid), listener);
+                try {
+                    ChatState state = ChatState.active;
+                    switch (chatState) {
+                        case active:    state = ChatState.active;    break;
+                        case composing: state = ChatState.composing; break;
+                        case paused:    state = ChatState.paused;    break;
+                        case inactive:  state = ChatState.inactive;  break;
+                        case gone:      state = ChatState.gone;      break;
+                    }
 
-            Message message = new Message();
-            message.addExtension(new ChatStateExtension(state));
-            chat.sendMessage(message);
-        }
-        catch (XMPPException e) {
-            // Ignore
-        }
+                    Message message = new Message();
+                    message.addExtension(new ChatStateExtension(state));
+                    chat.sendMessage(message);
+                }
+                catch (XMPPException e) {
+                    // Ignore
+                }
+            }
+        });
     }
 
     /**
      * @see net.sf.kraken.session.TransportSession#sendBuzzNotification(org.xmpp.packet.JID, String)
      */
     @Override
-    public void sendBuzzNotification(JID jid, String message) {
-        Chat chat = conn.getChatManager().createChat(getTransport().convertJIDToID(jid), listener);
-        try {
-            Message m = new Message();
-            m.setTo(getTransport().convertJIDToID(jid));
-            m.addExtension(new BuzzExtension());
-            chat.sendMessage(m);
-        }
-        catch (XMPPException e) {
-            // Ignore
-        }
+    public void sendBuzzNotification(final JID jid, String message) {
+        execute(new ConnectionCommand() {
+            @Override
+            public void execute(XMPPSession session, XMPPConnection conn, XMPPListener listener) {
+                BaseTransport<XMPPBuddy> transport = getTransport();
+                Chat chat = conn.getChatManager().createChat(transport.convertJIDToID(jid), listener);
+                try {
+                    Message m = new Message();
+                    m.setTo(transport.convertJIDToID(jid));
+                    m.addExtension(new BuzzExtension());
+                    chat.sendMessage(m);
+                }
+                catch (XMPPException e) {
+                    // Ignore
+                }
+            }
+        });
     }
 
     /**
@@ -663,71 +938,97 @@ public class XMPPSession extends TransportSession<XMPPBuddy> {
         new Thread() {
             @Override
             public void run() {
-                Avatar avatar = getAvatar();
+                execute(new ConnectionCommand() {
+                    @Override
+                    public void execute(XMPPSession session, XMPPConnection conn, XMPPListener listener) {
+                        Avatar avatar = getAvatar();
 
-                VCard vCard = new VCard();
-                try {
-                    vCard.load(conn);
-                    vCard.setAvatar(data, avatar.getMimeType());
-                    vCard.save(conn);
+                        VCard vCard = new VCard();
+                        try {
+                            vCard.load(conn);
+                            vCard.setAvatar(data, avatar.getMimeType());
+                            vCard.save(conn);
 
-                    avatar.setLegacyIdentifier(avatar.getXmppHash());
-                    
-                    // Same thing in this case, so lets go ahead and set them.
-                    final org.jivesoftware.smack.packet.Presence presence = constructCurrentLegacyPresencePacket();
-                    conn.sendPacket(presence);
-                }
-                catch (XMPPException e) {
-                    Log.debug("XMPP: Error while updating vcard for avatar change.", e);
-                }
+                            avatar.setLegacyIdentifier(avatar.getXmppHash());
+                            
+                            // Same thing in this case, so lets go ahead and set them.
+                            final org.jivesoftware.smack.packet.Presence presence = constructCurrentLegacyPresencePacket();
+                            conn.sendPacket(presence);
+                        }
+                        catch (XMPPException e) {
+                            Log.debug("XMPP: Error while updating vcard for avatar change.", e);
+                        }
+                    }
+                });
             }
         }.start();
     }
     
     private void syncUsers() {
-        for (RosterEntry entry : conn.getRoster().getEntries()) {
-            getBuddyManager().storeBuddy(new XMPPBuddy(getBuddyManager(), entry.getUser(), entry.getName(), entry.getGroups(), entry));
-            // Facebook does not support presence probes in their XMPP implementation. See http://developers.facebook.com/docs/chat#features
-            if (!TransportType.facebook.equals(getTransport().getType())) {
-                //ProbePacket probe = new ProbePacket(this.getJID()+"/"+xmppResource, entry.getUser());
-                ProbePacket probe = new ProbePacket(null, entry.getUser());
-                Log.debug("XMPP: Sending the following probe packet: "+probe.toXML());
+        execute(new ConnectionCommand() {
+            @Override
+            public void execute(XMPPSession session, XMPPConnection conn, XMPPListener listener) {
+                for (RosterEntry entry : conn.getRoster().getEntries()) {
+                    getBuddyManager().storeBuddy(new XMPPBuddy(getBuddyManager(), entry.getUser(), entry.getName(), entry.getGroups(), entry));
+                    // Facebook does not support presence probes in their XMPP implementation. See http://developers.facebook.com/docs/chat#features
+                    if (!TransportType.facebook.equals(getTransport().getType())) {
+                        //ProbePacket probe = new ProbePacket(this.getJID()+"/"+xmppResource, entry.getUser());
+                        ProbePacket probe = new ProbePacket(null, entry.getUser());
+                        Log.debug("XMPP: Sending the following probe packet: "+probe.toXML());
+                        try {
+                            conn.sendPacket(probe);
+                        }
+                        catch (IllegalStateException e) {
+                            Log.debug("XMPP: Not connected while trying to send probe.");
+                        }
+                    }
+                }
+
                 try {
-                    conn.sendPacket(probe);
+                    getTransport().syncLegacyRoster(getJID(), getBuddyManager().getBuddies());
                 }
-                catch (IllegalStateException e) {
-                    Log.debug("XMPP: Not connected while trying to send probe.");
+                catch (UserNotFoundException ex) {
+                    Log.error("XMPP: User not found while syncing legacy roster: ", ex);
                 }
+
+                getBuddyManager().activate();
+
+                // lets repoll the roster since smack seems to get out of sync...
+                // we'll let the roster listener take care of this though.
+                conn.getRoster().reload();
             }
-        }
-
-        try {
-            getTransport().syncLegacyRoster(getJID(), getBuddyManager().getBuddies());
-        }
-        catch (UserNotFoundException ex) {
-            Log.error("XMPP: User not found while syncing legacy roster: ", ex);
-        }
-
-        getBuddyManager().activate();
-
-        // lets repoll the roster since smack seems to get out of sync...
-        // we'll let the roster listener take care of this though.
-        conn.getRoster().reload();
+        });        
     }
-
-    private class MailCheck extends TimerTask {
-        /**
-         * Check GMail for new mail.
-         */
-        @Override
-        public void run() {
-            if (getTransport().getType().equals(TransportType.gtalk) && JiveGlobals.getBooleanProperty("plugin.gateway.gtalk.mailnotifications", true)) {
-                GoogleMailNotifyExtension gmne = new GoogleMailNotifyExtension();
-                gmne.setNewerThanTime(listener.getLastGMailThreadDate());
-                gmne.setNewerThanTid(listener.getLastGMailThreadId());
-                conn.sendPacket(new IQWithPacketExtension(generateFullJID(getRegistration().getUsername()), gmne));
-            }
+    
+    private void execute(ConnectionCommand command) {
+        ActiveConnection c = activeConnection.get();
+        if (c != null) {
+            c.execute(command);
+        } else {
+            log("No active connection when executing a command");
         }
     }
     
+    public interface ConnectionCommand {
+        public void execute(XMPPSession session, XMPPConnection conn, XMPPListener listener);
+    }
+    
+    private void log(String message) {
+        String jid = String.valueOf(registration.getJID());
+        String transportType = String.valueOf(registration.getTransportType());
+        String password = abbreviate(registration.getPassword(), 11);
+        
+        System.err.println(
+                new Date() + " " + message + " [" + jid + ", " + transportType + ", " + password + ", " + hashCode() + "]");
+    }
+    
+    private String abbreviate(String s, int maxLength) {
+        int length = s.length();
+        if (length > maxLength) {
+            int partLength = (maxLength - 3) / 2;
+            return s.substring(0, partLength) + "..." + s.substring(length - partLength, length);
+        } else {
+            return s;
+        }
+    }
 }
