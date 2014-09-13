@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
-	<classpathentry kind="src" path="src/java"/>
+	<classpathentry kind="src" output="target/classes" path="src/java">
+		<attributes>
+			<attribute name="optional" value="true"/>
+			<attribute name="maven.pomderived" value="true"/>
+		</attributes>
+	</classpathentry>
 	<classpathentry kind="lib" path="build/lib/ant-contrib.jar"/>
 	<classpathentry kind="lib" path="build/lib/ant-jive-edition.jar"/>
 	<classpathentry kind="lib" path="build/lib/qdox.jar"/>
@@ -16,10 +21,9 @@
 	<classpathentry kind="lib" path="lib/jsocks.jar"/>
 	<classpathentry kind="lib" path="lib/log4j.jar"/>
 	<classpathentry kind="lib" path="lib/martyr.jar"/>
-	<classpathentry kind="lib" path="lib/smack.jar" sourcepath="C:/Dev/seabrowser/openfire/smack/source"/>
-	<classpathentry kind="lib" path="lib/smackx.jar"/>
+	<classpathentry kind="lib" path="lib/smack-3.4.1.jar" sourcepath="C:/Dev/seabrowser/openfire/smack/source"/>
+	<classpathentry kind="lib" path="lib/smackx-3.4.1.jar"/>
 	<classpathentry kind="lib" path="lib/xmlrpc.jar"/>
-	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
 	<classpathentry kind="lib" path="lib/jqql.jar"/>
 	<classpathentry kind="lib" path="lib/dom4j.jar"/>
 	<classpathentry kind="lib" path="lib/stcomm.jar"/>
@@ -28,7 +32,22 @@
 	<classpathentry kind="lib" path="lib/json.jar"/>
 	<classpathentry kind="lib" path="lib/httpclient.jar"/>
 	<classpathentry kind="lib" path="lib/openymsg.jar"/>
-	<classpathentry combineaccessrules="false" kind="src" path="/openfire"/>
 	<classpathentry kind="lib" path="lib/jcip-annotations.jar"/>
-	<classpathentry kind="output" path="bin"/>
+	<classpathentry kind="src" output="target/test-classes" path="src/test/java">
+		<attributes>
+			<attribute name="optional" value="true"/>
+			<attribute name="maven.pomderived" value="true"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-1.7">
+		<attributes>
+			<attribute name="maven.pomderived" value="true"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="con" path="org.eclipse.m2e.MAVEN2_CLASSPATH_CONTAINER">
+		<attributes>
+			<attribute name="maven.pomderived" value="true"/>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="output" path="target/classes"/>
 </classpath>
