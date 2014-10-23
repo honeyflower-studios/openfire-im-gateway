@@ -26,8 +26,23 @@ import org.apache.log4j.Logger;
 import org.jivesoftware.util.JiveGlobals;
 import org.jivesoftware.util.LocaleUtils;
 import org.jivesoftware.util.NotFoundException;
-import org.openymsg.network.*;
-import org.openymsg.network.event.*;
+import org.openymsg.network.AuthenticationState;
+import org.openymsg.network.FireEvent;
+import org.openymsg.network.LoginRefusedException;
+import org.openymsg.network.YahooUser;
+import org.openymsg.network.event.SessionAuthorizationEvent;
+import org.openymsg.network.event.SessionChatEvent;
+import org.openymsg.network.event.SessionErrorEvent;
+import org.openymsg.network.event.SessionEvent;
+import org.openymsg.network.event.SessionExceptionEvent;
+import org.openymsg.network.event.SessionFileTransferEvent;
+import org.openymsg.network.event.SessionFriendAcceptedEvent;
+import org.openymsg.network.event.SessionFriendEvent;
+import org.openymsg.network.event.SessionFriendRejectedEvent;
+import org.openymsg.network.event.SessionListEvent;
+import org.openymsg.network.event.SessionListener;
+import org.openymsg.network.event.SessionNewMailEvent;
+import org.openymsg.network.event.SessionNotifyEvent;
 import org.openymsg.support.MessageDecoder;
 import org.xmpp.packet.JID;
 import org.xmpp.packet.Message;
@@ -41,7 +56,6 @@ import org.xmpp.packet.Presence;
  * @author Daniel Henninger
  * Heavily inspired by Noah Campbell's work.
  */
-@SuppressWarnings({"ThrowableResultOfMethodCallIgnored"})
 public class YahooListener implements SessionListener {
 
     static Logger Log = Logger.getLogger(YahooListener.class);

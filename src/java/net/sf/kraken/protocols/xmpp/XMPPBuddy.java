@@ -31,7 +31,7 @@ public class XMPPBuddy extends TransportBuddy {
     public final RosterEntry rosterEntry;
 
     public XMPPBuddy(TransportBuddyManager<XMPPBuddy> manager, String username) {
-        this(manager, username, null, Collections.EMPTY_SET, null);
+        this(manager, username, null, Collections.<RosterGroup> emptySet(), null);
     }
     
     public XMPPBuddy(TransportBuddyManager<XMPPBuddy> manager, String username, String nickname, Collection<RosterGroup> groups, RosterEntry entry) {

@@ -10,6 +10,19 @@
 
 package net.sf.kraken;
 
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.locks.Lock;
+
 import net.sf.kraken.avatars.Avatar;
 import net.sf.kraken.muc.BaseMUCTransport;
 import net.sf.kraken.permissions.PermissionManager;
@@ -20,7 +33,12 @@ import net.sf.kraken.roster.TransportBuddy;
 import net.sf.kraken.session.TransportSession;
 import net.sf.kraken.session.TransportSessionManager;
 import net.sf.kraken.session.cluster.TransportSessionRouter;
-import net.sf.kraken.type.*;
+import net.sf.kraken.type.ChatStateType;
+import net.sf.kraken.type.NameSpace;
+import net.sf.kraken.type.PresenceType;
+import net.sf.kraken.type.SupportedFeature;
+import net.sf.kraken.type.TransportLoginStatus;
+import net.sf.kraken.type.TransportType;
 import net.sf.kraken.util.chatstate.ChatStateChangeEvent;
 import net.sf.kraken.util.chatstate.ChatStateEventListener;
 import net.sf.kraken.util.chatstate.ChatStateEventSource;
@@ -41,26 +59,32 @@ import org.jivesoftware.openfire.event.UserEventListener;
 import org.jivesoftware.openfire.interceptor.InterceptorManager;
 import org.jivesoftware.openfire.interceptor.PacketInterceptor;
 import org.jivesoftware.openfire.roster.Roster;
-import org.jivesoftware.openfire.roster.*;
+import org.jivesoftware.openfire.roster.RosterEventDispatcher;
+import org.jivesoftware.openfire.roster.RosterEventListener;
+import org.jivesoftware.openfire.roster.RosterItem;
+import org.jivesoftware.openfire.roster.RosterManager;
 import org.jivesoftware.openfire.session.ClientSession;
 import org.jivesoftware.openfire.session.Session;
 import org.jivesoftware.openfire.user.User;
 import org.jivesoftware.openfire.user.UserAlreadyExistsException;
 import org.jivesoftware.openfire.user.UserNotFoundException;
-import org.jivesoftware.openfire.vcard.VCardListener;
 import org.jivesoftware.openfire.vcard.VCardEventDispatcher;
-import org.jivesoftware.util.*;
+import org.jivesoftware.openfire.vcard.VCardListener;
+import org.jivesoftware.util.Base64;
+import org.jivesoftware.util.JiveGlobals;
+import org.jivesoftware.util.LocaleUtils;
+import org.jivesoftware.util.NotFoundException;
+import org.jivesoftware.util.StringUtils;
 import org.jivesoftware.util.cache.CacheFactory;
 import org.xmpp.component.Component;
 import org.xmpp.component.ComponentManager;
-import org.xmpp.packet.*;
+import org.xmpp.packet.IQ;
+import org.xmpp.packet.JID;
+import org.xmpp.packet.Message;
+import org.xmpp.packet.Packet;
+import org.xmpp.packet.PacketError;
 import org.xmpp.packet.PacketError.Condition;
-
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.text.SimpleDateFormat;
-import java.util.*;
-import java.util.concurrent.locks.Lock;
+import org.xmpp.packet.Presence;
 
 /**
  * Base class of all transport implementations.
@@ -1621,7 +1645,7 @@ public abstract class BaseTransport<B extends TransportBuddy> implements Compone
             m.setError(Condition.undefined_condition);
         }
         try {
-            TransportSession session = sessionManager.getSession(to);
+            TransportSession<B> session = sessionManager.getSession(to);
             if (session.getDetachTimestamp() != 0) {
                 // This is a detached session then, so lets store the packet instead of delivering.
                 session.storePendingPacket(m);
@@ -1685,7 +1709,7 @@ public abstract class BaseTransport<B extends TransportBuddy> implements Compone
 //        m.getChildElement("time","").setText(time);
 
         try {
-            TransportSession session = sessionManager.getSession(to);
+            TransportSession<B> session = sessionManager.getSession(to);
             if (session.getDetachTimestamp() != 0) {
                 // This is a detached session then, so lets store the packet instead of delivering.
                 session.storePendingPacket(m);
@@ -2260,7 +2284,6 @@ public abstract class BaseTransport<B extends TransportBuddy> implements Compone
      *
      * @see org.jivesoftware.openfire.interceptor.PacketInterceptor#interceptPacket(org.xmpp.packet.Packet, org.jivesoftware.openfire.session.Session, boolean, boolean)
      */
-    @SuppressWarnings("unchecked")
     public void interceptPacket(Packet packet, Session session, boolean incoming, boolean processed) {
         // If not IQ, return immediately.
         if (!(packet instanceof IQ)) {
@@ -2396,7 +2419,7 @@ public abstract class BaseTransport<B extends TransportBuddy> implements Compone
                 }
                 if (sub != null && sub.equals("remove")) {
                     try {
-                        TransportSession trSession = sessionManager.getSession(session.getAddress().getNode());
+                        TransportSession<B> trSession = sessionManager.getSession(session.getAddress().getNode());
                         if (!trSession.isRosterLocked(jid.toString())) {
                             Log.debug(getType().toString()+": contact delete "+session.getAddress().getNode()+":"+jid);
                             trSession.getBuddyManager().removeBuddy(convertJIDToID(jid));
@@ -2408,7 +2431,7 @@ public abstract class BaseTransport<B extends TransportBuddy> implements Compone
                 }
                 else {
                     try {
-                        TransportSession trSession = sessionManager.getSession(session.getAddress().getNode());
+                        TransportSession<B> trSession = sessionManager.getSession(session.getAddress().getNode());
                         if (!trSession.isRosterLocked(jid.toString())) {
                             try {
                                 TransportBuddy buddy = trSession.getBuddyManager().getBuddy(jid);

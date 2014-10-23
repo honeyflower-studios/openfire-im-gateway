@@ -109,7 +109,8 @@ public class YahooSession extends TransportSession<YahooBuddy> {
         if (!isLoggedIn()) {
             yahooSession = new Session(new DirectConnectionHandler(
                     JiveGlobals.getProperty("plugin.gateway.yahoo.connecthost", "scs.msg.yahoo.com"),
-                    JiveGlobals.getIntProperty("plugin.gateway.yahoo.connectport", 5050)
+                    JiveGlobals.getIntProperty("plugin.gateway.yahoo.connectport", 5050),
+                    null
             ));
             yahooListener = new YahooListener(this);
             yahooSession.addSessionListener(yahooListener);

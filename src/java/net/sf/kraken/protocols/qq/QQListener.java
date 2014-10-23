@@ -19,10 +19,15 @@ import java.util.Map;
 import net.sf.jqql.beans.DownloadFriendEntry;
 import net.sf.jqql.beans.FriendOnlineEntry;
 import net.sf.jqql.beans.NormalIM;
-import net.sf.jqql.beans.QQFriend;
 import net.sf.jqql.events.IQQListener;
 import net.sf.jqql.events.QQEvent;
-import net.sf.jqql.packets.in.*;
+import net.sf.jqql.packets.in.ChangeStatusReplyPacket;
+import net.sf.jqql.packets.in.DownloadGroupFriendReplyPacket;
+import net.sf.jqql.packets.in.FriendChangeStatusPacket;
+import net.sf.jqql.packets.in.GetFriendListReplyPacket;
+import net.sf.jqql.packets.in.GetUserInfoReplyPacket;
+import net.sf.jqql.packets.in.GroupDataOpReplyPacket;
+import net.sf.jqql.packets.in.ReceiveIMPacket;
 import net.sf.jqql.packets.in._08._08GetOnlineOpReplyPacket;
 import net.sf.kraken.type.ConnectionFailureReason;
 import net.sf.kraken.type.TransportLoginStatus;
@@ -41,7 +46,7 @@ public class QQListener implements IQQListener {
 //    public static final SimpleDateFormat sdf = new SimpleDateFormat(
 //            "yyyy-MM-dd HH:mm:ss");
     private List<String> groupNames = new ArrayList<String>();
-    private Map<Integer, QQFriend> friends = new HashMap<Integer, QQFriend>();
+    //private Map<Integer, QQFriend> friends = new HashMap<Integer, QQFriend>();
     private Map<Integer, String> friendGroup = new HashMap<Integer, String>();
 //    private Map<Integer,
 //                ClusterInfo> clusters = new HashMap<Integer, ClusterInfo>();

@@ -20,6 +20,11 @@ import org.xmpp.packet.JID;
 public class ChatStateChangeEvent extends EventObject {
 
     /**
+     * 
+     */
+    private static final long serialVersionUID = -6321026507992562810L;
+
+    /**
      * The entity that originates the chat state notification.
      */
     public final JID sender;
