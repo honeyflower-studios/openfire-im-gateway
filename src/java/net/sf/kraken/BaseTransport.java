@@ -237,16 +237,22 @@ public abstract class BaseTransport<B extends TransportBuddy> implements Compone
             packet.setTo(getJID());
             to = getJID();
         }
+        
+        // Do not generate replies if error happens during processing of error message.
+        // Otherwise, a message arriving during logout may trigger error message that bounces inside the system, causing StackOverflowError 
+        boolean isError = packet.getError() != null;
 
         try {
             TransportSession<B> session = sessionManager.getSession(from);
             if (!session.isLoggedIn()) {
-                Message m = new Message();
-                m.setError(Condition.service_unavailable);
-                m.setTo(from);
-                m.setFrom(getJID());
-                m.setBody(LocaleUtils.getLocalizedString("gateway.base.notloggedin", "kraken", Arrays.asList(transportType.toString().toUpperCase())));
-                reply.add(m);
+                if (!isError) {
+                    Message m = new Message();
+                    m.setError(Condition.service_unavailable);
+                    m.setTo(from);
+                    m.setFrom(getJID());
+                    m.setBody(LocaleUtils.getLocalizedString("gateway.base.notloggedin", "kraken", Arrays.asList(transportType.toString().toUpperCase())));
+                    reply.add(m);
+                }
             }
             else if (to.getNode() == null) {
                 // Message to gateway itself.
@@ -308,12 +314,14 @@ public abstract class BaseTransport<B extends TransportBuddy> implements Compone
         }
         catch (NotFoundException e) {
             Log.debug("Unable to find session.");
-            Message m = new Message();
-            m.setError(Condition.service_unavailable);
-            m.setTo(from);
-            m.setFrom(getJID());
-            m.setBody(LocaleUtils.getLocalizedString("gateway.base.notloggedin", "kraken", Arrays.asList(transportType.toString().toUpperCase())));
-            reply.add(m);
+            if (!isError) {
+                Message m = new Message();
+                m.setError(Condition.service_unavailable);
+                m.setTo(from);
+                m.setFrom(getJID());
+                m.setBody(LocaleUtils.getLocalizedString("gateway.base.notloggedin", "kraken", Arrays.asList(transportType.toString().toUpperCase())));
+                reply.add(m);
+            }
         }
 
         return reply;
